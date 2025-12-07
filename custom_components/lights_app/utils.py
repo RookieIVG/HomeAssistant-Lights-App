@@ -127,7 +127,7 @@ def notification_handler(entryData: dict):
             await updateEntities(entryData["entities"])
 
         # process mode and brightness data
-        if b"\x00\x00\x00\x00\x00\x00\x00\x00" in data and len(data) == 18:
+        if data.startswith(b"\x02\x00") and len(data) == 18:
             entryData["mode"] = transformModeFromHex(data[-1])
             entryData["brightness"] = get_brightness_from_bytearray(data)
             LOGGER.debug(
