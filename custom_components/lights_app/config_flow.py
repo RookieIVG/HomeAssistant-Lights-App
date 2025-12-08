@@ -2,6 +2,7 @@
 import voluptuous as vol
 from typing import Any
 from bleak import BleakClient
+import re
 
 from homeassistant import config_entries
 from homeassistant.components.bluetooth import (
@@ -15,7 +16,6 @@ from homeassistant.data_entry_flow import FlowResult
 from .const import (
     DOMAIN,
     SERVICE,
-    SUPPORTED_BLUETOOTH_NAMES,
 )
 from .utils import getNotifyCharacteristic, getWriteCharacteristic
 
@@ -31,7 +31,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, discovery: BluetoothServiceInfoBleak
     ) -> FlowResult:
         """Handle the bluetooth discovery step."""
-        if discovery.name not in SUPPORTED_BLUETOOTH_NAMES:
+        if not self.supported_bluetooth_name(discovery.name):
             return self.async_abort(reason="not_supported")
         await self.async_set_unique_id(discovery.address)
         self._abort_if_unique_id_configured()
@@ -46,7 +46,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._discovered_devices[discovery.address] = discovery
         else:
             for discovery in async_discovered_service_info(self.hass):
-                if discovery.name in SUPPORTED_BLUETOOTH_NAMES:
+                if self.supported_bluetooth_name(discovery.name):
                     self._discovered_devices[discovery.address] = discovery
         errors: dict[str, str] = {}
 
@@ -99,3 +99,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=data_schema,
             errors=errors,
         )
+
+    def supported_bluetooth_name(self, name):
+        return re.match(r"^LED-\d-\d\d-00000000$", name) is not None
