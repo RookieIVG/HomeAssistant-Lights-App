@@ -89,7 +89,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         [
             "switch",
             "light",
-            "number",
         ],
     )
 
@@ -153,7 +152,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
         await hass.async_create_task(
             hass.config_entries.async_forward_entry_setups(
-                entry, ["light", "switch", "number"]
+                entry, ["light", "switch"]
             )
         )
         return True

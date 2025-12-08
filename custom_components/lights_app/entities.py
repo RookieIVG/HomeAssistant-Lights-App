@@ -3,7 +3,6 @@ from homeassistant.helpers.entity import DeviceInfo, Entity
 from homeassistant.const import CONF_ADDRESS, STATE_UNAVAILABLE
 from homeassistant.components.light import LightEntity
 from homeassistant.components.switch import SwitchEntity
-from homeassistant.components.number import NumberEntity
 from homeassistant.components.light import ColorMode
 from .const import DOMAIN
 
@@ -55,9 +54,3 @@ class LightsAppSwitchEntity(SwitchEntity, LightsAppEntity):
     def __init__(self, hass, config_entry: dict, entryData: dict, name_suffix: str):
         LightsAppEntity.__init__(self, hass, config_entry, entryData, name_suffix)
         SwitchEntity.__init__(self)
-
-
-class LightsAppNumberEntity(NumberEntity, LightsAppEntity):
-    def __init__(self, hass, config_entry: dict, entryData: dict, name_suffix: str):
-        LightsAppEntity.__init__(self, hass, config_entry, entryData, name_suffix)
-        NumberEntity.__init__(self)
