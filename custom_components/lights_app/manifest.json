@@ -1,15 +1,15 @@
 {
   "domain": "lights_app",
   "name": "Lights App",
-  "documentation": "https://github.com/JurajNyiri/HomeAssistant-Light-App",
-  "issue_tracker": "https://github.com/JurajNyiri/HomeAssistant-Light-App/issues",
+  "documentation": "https://github.com/RookieIVG/HomeAssistant-Light-App",
+  "issue_tracker": "https://github.com/RookieIVG/HomeAssistant-Light-App/issues",
   "bluetooth": [
     {
       "local_name": "LED-*"
     }
   ],
   "codeowners": [
-    "@JurajNyiri"
+    "@RookieIVG"
   ],
   "config_flow": true,
   "dependencies": [
