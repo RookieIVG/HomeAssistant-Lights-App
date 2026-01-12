@@ -1,86 +1,76 @@
-from homeassistant.core import HomeAssistant
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import STATE_UNAVAILABLE
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.components.light import ATTR_BRIGHTNESS, ColorMode
-
-from .const import DOMAIN
-
 from .entities import LightsAppLightEntity
-from .const import LOGGER
+from .const import DOMAIN
 from .utils import (
     convert_device_brightness_to_ha,
     convert_ha_brightness_to_device,
     getBrightnessCommand,
     getTurnOnCommand,
     getTurnOffCommand,
+    getModeCommand,
     sendCommand,
 )
 
-
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    return True
-
-
-async def async_setup_entry(
-    hass: HomeAssistant,
-    config_entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
-) -> None:
-    LOGGER.debug("Setting up lights")
-    on_off = LightsAppTurnOnOff(
-        hass, config_entry, hass.data[DOMAIN][config_entry.entry_id]
-    )
-    hass.data[DOMAIN][config_entry.entry_id]["entities"].append(on_off)
-    async_add_entities([on_off])
-
+async def async_setup_entry(hass, config_entry, async_add_entities):
+    entry_data = hass.data[DOMAIN][config_entry.entry_id]
+    entities = [LightsAppTurnOnOff(hass, config_entry, entry_data)]
+    
+    modes = [
+        ("Stay on", "stay_on"), ("Fast twinkling", "fast_twinkling"),
+        ("Fade away", "fade_away"), ("Twinkling in phase", "twinkling_in_phase"),
+        ("Fade away in phase", "fade_away_in_phase"), ("Phasing", "phasing"), ("Wave", "wave")
+    ]
+    
+    for name, mode_id in modes:
+        entities.append(LightsAppModeLight(hass, config_entry, entry_data, name, mode_id))
+    
+    for entity in entities:
+        entry_data["entities"].append(entity)
+        
+    async_add_entities(entities)
 
 class LightsAppTurnOnOff(LightsAppLightEntity):
-    def __init__(self, hass: HomeAssistant, config_entry, entryData):
-        LightsAppLightEntity.__init__(self, hass, config_entry, entryData, "Light")
-        self._attr_supported_color_modes = set([ColorMode.BRIGHTNESS])
+    def __init__(self, hass, config_entry, entryData):
+        super().__init__(hass, config_entry, entryData, "Light")
+        self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
         self._attr_color_mode = ColorMode.BRIGHTNESS
-        self._attr_brightness = None
-        self.setState()
-
-    def setState(self):
-        if "state" in self._entryData:
-            if self._entryData["state"] is None:
-                self._attr_state = STATE_UNAVAILABLE
-            else:
-                self._attr_state = "on" if self._entryData["state"] else "off"
-        if "brightness" in self._entryData:
-            if self._entryData["brightness"] is None:
-                self._attr_brightness = None
-            else:
-                self._attr_brightness = convert_device_brightness_to_ha(
-                    self._entryData["brightness"]
-                )
-
-    async def async_update(self) -> None:
-        if not self._entryData["statePending"]:
-            self.setState()
-        await self._entryData["coordinator"].async_request_refresh()
-
-    async def async_turn_on(self, **kwargs) -> None:
-        if ATTR_BRIGHTNESS in kwargs:
-            device_brightness = convert_ha_brightness_to_device(kwargs[ATTR_BRIGHTNESS])
-            await sendCommand(
-                self._entryData,
-                self._client,
-                self._service,
-                getBrightnessCommand(device_brightness),
-            )
-
-        await sendCommand(
-            self._entryData, self._client, self._service, getTurnOnCommand()
-        )
-
-    async def async_turn_off(self) -> None:
-        await sendCommand(
-            self._entryData, self._client, self._service, getTurnOffCommand()
-        )
 
     @property
-    def state(self):
-        return self._attr_state
+    def is_on(self):
+        return self._entryData.get("state")
+
+    @property
+    def brightness(self):
+        val = self._entryData.get("brightness")
+        return convert_device_brightness_to_ha(val) if val else None
+
+    async def async_turn_on(self, **kwargs):
+        if ATTR_BRIGHTNESS in kwargs:
+            br = convert_ha_brightness_to_device(kwargs[ATTR_BRIGHTNESS])
+            await sendCommand(self._entryData, self._client, self._service, getBrightnessCommand(br))
+        await sendCommand(self._entryData, self._client, self._service, getTurnOnCommand())
+
+    async def async_turn_off(self, **kwargs):
+        await sendCommand(self._entryData, self._client, self._service, getTurnOffCommand())
+
+class LightsAppModeLight(LightsAppLightEntity):
+    def __init__(self, hass, config_entry, entryData, name, mode_id):
+        self._mode_id = mode_id
+        super().__init__(hass, config_entry, entryData, name)
+        self._attr_supported_color_modes = {ColorMode.ONOFF}
+        self._attr_color_mode = ColorMode.ONOFF
+
+    @property
+    def is_on(self):
+        modes = self._entryData.get("mode")
+        return modes.get(self._mode_id, False) if isinstance(modes, dict) else False
+
+    async def async_turn_on(self, **kwargs):
+        if not isinstance(self._entryData.get("mode"), dict): self._entryData["mode"] = {}
+        self._entryData["mode"][self._mode_id] = True
+        await sendCommand(self._entryData, self._client, self._service, getModeCommand(self._entryData["mode"]))
+
+    async def async_turn_off(self, **kwargs):
+        if isinstance(self._entryData.get("mode"), dict):
+            self._entryData["mode"][self._mode_id] = False
+            await sendCommand(self._entryData, self._client, self._service, getModeCommand(self._entryData["mode"]))
