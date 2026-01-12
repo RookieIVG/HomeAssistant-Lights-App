@@ -1,36 +1,58 @@
+# Lights App Integration for Home Assistant
 
-# HomeAssistant - Lights App
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
+![Maintainer](https://img.shields.io/badge/maintainer-YourName-blue.svg)
 
-Custom component that allows control of lights by [Lights App - Android](https://play.google.com/store/apps/details?id=com.novolink.lightapp&hl=en_US) or [Lights App - iOS](https://apps.apple.com/at/app/lights-app/id1250320630)
+Diese Integration ermöglicht die Steuerung von Bluetooth-Lichterketten (BLE), die normalerweise über die mobile "Lights App" gesteuert werden. Diese Version ist speziell auf Stabilität und eine moderne Home Assistant Nutzererfahrung optimiert.
+
+## 🌟 Besonderheiten dieser Version
+
+* **Licht-Entitäten statt Schalter:** Alle Modi (Wave, Phasing, etc.) werden als echte `light`-Entitäten angelegt. Das ermöglicht die Nutzung von Licht-Karten, Gruppen und nativen Helligkeitsreglern im Dashboard.
+* **Non-Blocking Startup:** Der Start von Home Assistant wird nicht verzögert. Die Verbindung zur Hardware wird asynchron im Hintergrund aufgebaut.
+* **Stabilitäts-Engine:** Nutzt den `bleak-retry-connector`, deaktiviert fehleranfälliges Caching und bereinigt "Zombie-Verbindungen", um die Bluetooth-Slots deines Systems zu schonen.
+* **RSSI Monitoring:** Überwacht die Signalstärke und gibt hilfreiche Debug-Informationen bei Verbindungsstörungen aus.
+
+## 🛠 Installation
+
+### Manuell
+1. Lade dieses Repository herunter.
+2. Kopiere den Ordner `custom_components/lights_app` in dein Home Assistant `custom_components` Verzeichnis.
+3. Starte Home Assistant neu.
+
+### Einrichtung
+1. Gehe zu **Einstellungen > Geräte & Dienste**.
+2. Klicke auf **Integration hinzufügen** und suche nach **Lights App**.
+3. Gib die MAC-Adresse deines Bluetooth-Geräts ein.
+
+## 💡 Unterstützte Funktionen
+
+* **Hauptlicht:** An/Aus & Helligkeit.
+* **Effekt-Modi:** Jeder Modus kann als eigenes Licht aktiviert werden:
+    * Stay on
+    * Fast twinkling
+    * Fade away
+    * Twinkling in phase
+    * Fade away in phase
+    * Phasing
+    * Wave
 
 
-<p float="left">
-  <img src="/img/img2.jpeg" width="200" />
-  <img src="/img/img1.jpeg" width="200" /> 
-</p>
 
-## Installation
+## ⚠️ Fehlerbehebung & Performance
 
-Copy contents of custom_components/lights_app/ to custom_components/lights_app/ in your Home Assistant config folder.
+### Signalstärke (RSSI)
+Bluetooth Low Energy ist anfällig für Störungen. Für einen reibungslosen Betrieb sollte der RSSI-Wert besser als **-75 dBm** sein.
+* **Tipp:** USB 3.0 Ports verursachen oft Interferenzen. Nutze ein **USB-Verlängerungskabel** für deinen Bluetooth-Dongle, um den Empfang drastisch zu verbessern.
+* **Tipp:** Bei Reichweitenproblemen wird ein **ESP32 Bluetooth Proxy** empfohlen.
 
-## Installation using HACS
 
-Add this repository as custom repository.
 
-HACS is a community store for Home Assistant. You can install [HACS](https://github.com/custom-components/hacs) and then install Lights App from the HACS store.
+### Debug-Logging
+Wenn du Probleme mit der Verbindung hast, aktiviere das Debug-Logging in deiner `configuration.yaml`:
 
-## Usage
+```yaml
+logger:
+  default: info
+  logs:
+    custom_components.lights_app: debug
 
-Integration allows setting brightness, controlling state and all the available modes.
-
-<p float="left">
-  <img src="/img/img3.png" width="400" />
-</p>
-
-## Have a comment or a suggestion?
-
-Please [open a new issue](https://github.com/JurajNyiri/HomeAssistant-Lights-App/issues/new/choose), or discuss on [Home Assistant: Community Forum](https://community.home-assistant.io/t/custom-component-lights-app-bluetooth-outside-christmas-lights/654770).
-
-## Thank you
-
-<a href="https://www.buymeacoffee.com/jurajnyiri" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me A Coffee"  width="150px" ></a>
