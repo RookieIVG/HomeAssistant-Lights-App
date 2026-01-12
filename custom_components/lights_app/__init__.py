@@ -1,9 +1,10 @@
+import asyncio
+from datetime import timedelta
 from bleak_retry_connector import establish_connection, BleakClientWithServiceCache
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import HomeAssistant
 from homeassistant.components import bluetooth
-from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import DOMAIN, SERVICE, LOGGER
@@ -16,144 +17,120 @@ from .utils import (
     getModeStateCommand,
 )
 
+async def setupConnection(hass: HomeAssistant, address: str, config_entry: ConfigEntry):
+    """Baut die Verbindung auf und bereinigt alte Reste radikal."""
+    entry_id = config_entry.entry_id
+    if entry_id not in hass.data[DOMAIN]:
+        return
 
-async def setupConnection(hass, address, config_entry):
-    LOGGER.debug("setupConnection")
-    if not hass.data[DOMAIN][config_entry.entry_id]["connection"]["connecting"]:
-        LOGGER.debug("Initiating connection attempt...")
-        try:
-            hass.data[DOMAIN][config_entry.entry_id]["connection"]["connecting"] = True
-            ble_device = bluetooth.async_ble_device_from_address(
-                hass, address, connectable=True
+    data = hass.data[DOMAIN][entry_id]
+    conn_state = data["connection"]
+
+    if conn_state["connecting"]:
+        return
+
+    try:
+        conn_state["connecting"] = True
+        
+        # Sicherheits-Check: Alten Client hart entfernen, falls vorhanden
+        if conn_state.get("client"):
+            LOGGER.debug("Bereinige alten Client vor Neuverbindung...")
+            try:
+                await conn_state["client"].disconnect()
+            except Exception:
+                pass
+            conn_state["client"] = None
+
+        LOGGER.debug("Hintergrund-Verbindung zu %s (Neu-Initialisierung)", address)
+        
+        async with asyncio.timeout(15.0):
+            ble_device = bluetooth.async_ble_device_from_address(hass, address, connectable=True)
+
+        if ble_device:
+            # use_services_cache=False sorgt für frische Daten (hilft bei instabilen Verbindungen)
+            client = await establish_connection(
+                BleakClientWithServiceCache,
+                ble_device,
+                name=address,
+                disconnected_callback=disconnect_handler(data),
+                use_services_cache=False, 
+                max_attempts=2,
             )
-            if ble_device:
-                LOGGER.debug("BLE Device found, connecting...")
-                hass.data[DOMAIN][config_entry.entry_id]["connection"]["client"] = (
-                    await establish_connection(
-                        BleakClientWithServiceCache,
-                        ble_device,
-                        name=address,
-                        disconnected_callback=disconnect_handler(
-                            hass.data[DOMAIN][config_entry.entry_id]
-                        ),
-                        use_services_cache=True,
-                        max_attempts=1,
-                    )
-                )
-                hass.data[DOMAIN][config_entry.entry_id]["connection"][
-                    "connected"
-                ] = True
-                LOGGER.debug(
-                    "Connected successfully, setting up subscribers and getting data..."
-                )
-                client = hass.data[DOMAIN][config_entry.entry_id]["connection"][
-                    "client"
-                ]
-                hass.data[DOMAIN][config_entry.entry_id]["connection"]["service"] = (
-                    client.services.get_service(SERVICE)
-                )
-                communicationService = hass.data[DOMAIN][config_entry.entry_id][
-                    "connection"
-                ]["service"]
+            
+            data["connection"]["client"] = client
+            service = client.services.get_service(SERVICE)
+            data["connection"]["service"] = service
+            data["connection"]["connected"] = True
 
-                if communicationService:
-                    await client.start_notify(
-                        getNotifyCharacteristic(communicationService),
-                        notification_handler(hass.data[DOMAIN][config_entry.entry_id]),
-                    )
+            if service:
+                notify_char = getNotifyCharacteristic(service)
+                if notify_char:
+                    await client.start_notify(notify_char, notification_handler(data))
 
-                    await sendCommand(
-                        hass.data[DOMAIN][config_entry.entry_id],
-                        client,
-                        communicationService,
-                        getLightStateCommand(),
-                    )
-                    await sendCommand(
-                        hass.data[DOMAIN][config_entry.entry_id],
-                        client,
-                        communicationService,
-                        getModeStateCommand(),
-                    )
+                await sendCommand(data, client, service, getLightStateCommand())
+                await sendCommand(data, client, service, getModeStateCommand())
 
-                LOGGER.debug("Connection completed.")
-            else:
-                LOGGER.debug("BLE Device not found.")
-        except Exception as err:
-            LOGGER.error(err)
-        hass.data[DOMAIN][config_entry.entry_id]["connection"]["connecting"] = False
+            # Sicherer Abruf des RSSI-Werts
+            rssi_value = getattr(ble_device, "rssi", "unbekannt")
+            LOGGER.info("Erfolgreich verbunden mit %s (RSSI: %s)", address, rssi_value)
+        else:
+            LOGGER.debug("Gerät %s nicht gefunden", address)
+            
+    except Exception as err:
+        LOGGER.error("Verbindungsfehler für %s: %s", address, err)
+        data["connection"]["connected"] = False
+    finally:
+        conn_state["connecting"] = False
 
-
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    await hass.config_entries.async_unload_platforms(
-        entry,
-        [
-            "switch",
-            "light",
-        ],
-    )
-
-    if hass.data[DOMAIN][entry.entry_id]["connection"]["connected"]:
-        client = hass.data[DOMAIN][entry.entry_id]["connection"]["client"]
-        await client.disconnect()
-
-    return True
-
-
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
-    """Set up the Lights App component from a config entry."""
-    LOGGER.debug("async_setup_entry")
-    hass.data.setdefault(DOMAIN, {})
-
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Setup der Integration ohne Blockieren des Startvorgangs."""
     address = entry.data.get(CONF_ADDRESS)
+    hass.data.setdefault(DOMAIN, {})
 
     hass.data[DOMAIN][entry.entry_id] = {
         "address": address,
         "entities": [],
         "state": None,
-        "statePending": True,
-        "mode": None,
-        "modePending": True,
+        "mode": {},
         "brightness": None,
-        "brightnessPending": True,
-        "connection": {"connected": False, "connecting": False},
+        "connection": {"connected": False, "connecting": False, "client": None, "service": None},
     }
 
-    await setupConnection(hass, address, entry)
+    # Task im Hintergrund starten
+    hass.async_create_task(setupConnection(hass, address, entry))
 
-    if hass.data[DOMAIN][entry.entry_id]["connection"]["connected"]:
+    async def async_update_data():
+        """Regelmäßiges Update über den Coordinator."""
+        data = hass.data[DOMAIN][entry.entry_id]
+        if not data["connection"]["connected"]:
+            # Falls Verbindung weg, im Hintergrund neu versuchen
+            hass.async_create_task(setupConnection(hass, address, entry))
+            return
+        
+        client = data["connection"]["client"]
+        if client and client.is_connected:
+            await sendCommand(data, client, data["connection"]["service"], getLightStateCommand())
 
-        async def async_update_data():
-            LOGGER.debug("async_update_data - entry")
+    # Längeres Intervall (5 Min), um BlueZ bei schwachem Signal zu entlasten
+    coordinator = DataUpdateCoordinator(
+        hass, LOGGER, name=f"Lights App {address}",
+        update_method=async_update_data,
+        update_interval=timedelta(minutes=5)
+    )
+    hass.data[DOMAIN][entry.entry_id]["coordinator"] = coordinator
 
-            if not hass.data[DOMAIN][entry.entry_id]["connection"]["connected"]:
-                LOGGER.debug("Not connected, reloading...")
-                await hass.config_entries.async_reload(entry.entry_id)
-            else:
-                await sendCommand(
-                    hass.data[DOMAIN][entry.entry_id],
-                    hass.data[DOMAIN][entry.entry_id]["connection"]["client"],
-                    hass.data[DOMAIN][entry.entry_id]["connection"]["service"],
-                    getLightStateCommand(),
-                )
-                await sendCommand(
-                    hass.data[DOMAIN][entry.entry_id],
-                    hass.data[DOMAIN][entry.entry_id]["connection"]["client"],
-                    hass.data[DOMAIN][entry.entry_id]["connection"]["service"],
-                    getModeStateCommand(),
-                )
+    await hass.config_entries.async_forward_entry_setups(entry, ["light", "switch"])
+    return True
 
-        lightsAppCoordinator = DataUpdateCoordinator(
-            hass,
-            LOGGER,
-            name="Lights App resource status",
-            update_method=async_update_data,
-        )
-        hass.data[DOMAIN][entry.entry_id]["coordinator"] = lightsAppCoordinator
-
-        await hass.async_create_task(
-            hass.config_entries.async_forward_entry_setups(
-                entry, ["light", "switch"]
-            )
-        )
-        return True
-    raise ConfigEntryNotReady()
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Sauberes Entladen der Integration."""
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, ["light", "switch"])
+    if unload_ok:
+        data = hass.data[DOMAIN].get(entry.entry_id)
+        if data and data["connection"].get("client"):
+            try:
+                await data["connection"]["client"].disconnect()
+            except Exception:
+                pass
+        hass.data[DOMAIN].pop(entry.entry_id, None)
+    return unload_ok
