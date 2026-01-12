@@ -1,153 +1,84 @@
-from bleak import BleakClient, BleakGATTServiceCollection, BleakGATTCharacteristic
+import asyncio
+from bleak import BleakClient, BleakGATTServiceCollection
 from .const import WRITE_CHARACTERISTIC, LOGGER, NOTIFY_CHARACTERISTIC
-from bleak_retry_connector import BleakClientWithServiceCache
 
+def getTurnOnCommand(): return bytearray.fromhex("01 01 01 01")
+def getTurnOffCommand(): return bytearray.fromhex("01 01 01 00")
+def getLightStateCommand(): return bytearray.fromhex("00 00 03 11 26 11")
+def getModeStateCommand(): return bytearray.fromhex("02 00 00")
 
-def getTurnOnCommand():
-    return bytearray.fromhex("01 01 01 01".replace(" ", ""))
+def getWriteCharacteristic(service):
+    if service is None: return None
+    try: return service.get_characteristic(WRITE_CHARACTERISTIC)
+    except: return None
 
-
-def getTurnOffCommand():
-    return bytearray.fromhex("01 01 01 00".replace(" ", ""))
-
-
-def getWriteCharacteristic(service: BleakGATTServiceCollection):
-    writeCharacteristic = service.get_characteristic(WRITE_CHARACTERISTIC)
-    return writeCharacteristic
-
-
-def getNotifyCharacteristic(service: BleakGATTServiceCollection):
-    notifyCharacteristic = service.get_characteristic(NOTIFY_CHARACTERISTIC)
-    return notifyCharacteristic
-
-
-def getLightStateCommand():
-    return bytearray.fromhex("00 00 03 11 26 11".replace(" ", ""))
-
-
-def getModeStateCommand():
-    return bytearray.fromhex("02 00 00".replace(" ", ""))
-
-
-def getModeCommand(mode):
-    hex_string = "".join(["{:02x}".format(byte) for byte in transformModeToHex(mode)])
-    return bytearray.fromhex(("05 01 02 03 " + hex_string).replace(" ", ""))
-
+def getNotifyCharacteristic(service):
+    if service is None: return None
+    try: return service.get_characteristic(NOTIFY_CHARACTERISTIC)
+    except: return None
 
 def getBrightnessCommand(brightness):
-    if 10 <= brightness < 100:
-        hex_string = f"03 01 01 {brightness:02x}"
-        return bytearray.fromhex(hex_string.replace(" ", ""))
-    raise Exception(
-        "Invalid brightness. Brightness has to be larger than 10 and smaller than 100."
-    )
-
-
-def get_brightness_from_bytearray(byte_array):
-    # Assuming brightness value is always at the 4th index (0-based).
-    # Since the bytearray represents the brightness in a single byte, we treat it as a number already in decimal.
-    brightness_value = byte_array[3]
-    # Convert the decimal brightness value to hexadecimal and remove the '0x' prefix
-    brightness_hex = hex(brightness_value)[2:]
-    # Convert the hexadecimal value back to decimal
-    brightness_decimal = int(brightness_hex, 16)
-    return brightness_decimal
-
-
-def convert_device_brightness_to_ha(brightness: int) -> int:
-    """Convert device brightness (10-99) to Home Assistant brightness (0-255)."""
     clamped = max(10, min(99, brightness))
-    return round((clamped - 10) / (99 - 10) * 255)
+    return bytearray.fromhex(f"03 01 01 {clamped:02x}")
 
-
-def convert_ha_brightness_to_device(brightness: int) -> int:
-    """Convert Home Assistant brightness (0-255) to device brightness (10-99)."""
-    normalized = max(0, min(255, brightness))
-    scaled = round(normalized / 255 * (99 - 10)) + 10
-    return max(10, min(99, scaled))
-
-
-async def sendCommand(
-    entryData: dict, client: BleakClient, service: BleakGATTServiceCollection, command
-):
-    try:
-        await client.write_gatt_char(getWriteCharacteristic(service), command, True)
-    except Exception as err:
-        LOGGER.error(err)
-        LOGGER.debug("Detected error on write, calling disconnect handler!")
-        disconnect_handler(entryData)(client)
-
-
-async def updateEntities(entities):
-    for entity in entities:
-        await entity.async_update()
-        entity.async_write_ha_state()
-
-
-def disconnect_handler(entryData: dict):
-    def handleBleakDisconnect(client: BleakClientWithServiceCache) -> None:
-        LOGGER.debug("handleBleakDisconnect")
-        entryData["state"] = None
-        entryData["statePending"] = False
-        entryData["mode"] = None
-        entryData["modePending"] = False
-        entryData["brightness"] = None
-        entryData["brightnessPending"] = False
-        entryData["connection"]["connected"] = False
-        for entity in entryData["entities"]:
-            entity.async_write_ha_state()
-
-    return handleBleakDisconnect
-
-
-def transformModeFromHex(hexByte):
-    binary_representation = bin(hexByte)[2:][-7:].zfill(7)
-    if binary_representation == "0000000":
-        binary_representation = "1111111"
-    bits_array = [int(bit) for bit in binary_representation]
-    return {
-        "stay_on": bits_array[0] == 1,
-        "fast_twinkling": bits_array[1] == 1,
-        "fade_away": bits_array[2] == 1,
-        "twinkling_in_phase": bits_array[3] == 1,
-        "fade_away_in_phase": bits_array[4] == 1,
-        "phasing": bits_array[5] == 1,
-        "wave": bits_array[6] == 1,
-    }
-
+def getModeCommand(mode):
+    hex_string = transformModeToHex(mode).hex()
+    return bytearray.fromhex("05 01 02 03 " + hex_string)
 
 def transformModeToHex(currentMode):
     binaryStr = ""
-    for key, value in currentMode.items():
-        binaryStr += "1" if value else "0"
-    if binaryStr == "0000000":
-        binaryStr = "1000000"
-    hex_byte = bytearray([int(binaryStr, 2)])
-    return hex_byte
+    keys = ["stay_on", "fast_twinkling", "fade_away", "twinkling_in_phase", 
+            "fade_away_in_phase", "phasing", "wave"]
+    for key in keys:
+        binaryStr += "1" if currentMode.get(key, False) else "0"
+    binaryStr += "0" 
+    return bytearray([int(binaryStr, 2)])
 
+def transformModeFromHex(hexByte):
+    binary = bin(hexByte)[2:].zfill(8)
+    return {
+        "stay_on": binary[0] == "1",
+        "fast_twinkling": binary[1] == "1",
+        "fade_away": binary[2] == "1",
+        "twinkling_in_phase": binary[3] == "1",
+        "fade_away_in_phase": binary[4] == "1",
+        "phasing": binary[5] == "1",
+        "wave": binary[6] == "1",
+    }
 
-def notification_handler(entryData: dict):
-    async def bleak_notification_handler(
-        characteristic: BleakGATTCharacteristic, data: bytearray
-    ):
-        LOGGER.debug("notification_handler")
-        LOGGER.debug(data)
-        # process state
+def convert_device_brightness_to_ha(b): return round((max(10, min(99, b)) - 10) / 89 * 255)
+def convert_ha_brightness_to_device(b): return round(max(0, min(255, b)) / 255 * 89) + 10
+
+async def sendCommand(entryData, client, service, command):
+    if client is None or not client.is_connected:
+        return
+    try:
+        char = getWriteCharacteristic(service)
+        if char:
+            async with asyncio.timeout(5.0):
+                await client.write_gatt_char(char, command, True)
+    except Exception as err:
+        LOGGER.debug(f"Kommando fehlgeschlagen (RSSI: {getattr(client, 'rssi', 'N/A')}): {err}")
+        # Wir triggern kein hartes disconnect hier, um BlueZ Slots zu schonen
+
+def disconnect_handler(entryData):
+    def handle(client):
+        LOGGER.warning("Bluetooth-Verbindung verloren für %s", entryData.get("address"))
+        entryData["connection"]["connected"] = False
+        # Wir löschen die Referenzen, damit setupConnection neu anfangen kann
+        entryData["connection"]["client"] = None
+        entryData["connection"]["service"] = None
+        for e in entryData.get("entities", []):
+            if e.hass: e.async_write_ha_state()
+    return handle
+
+def notification_handler(entryData):
+    async def handler(characteristic, data):
         if b"\x00\x00\x02" in data and len(data) == 5:
-            state = data[3] == 0x01
-            entryData["state"] = state
-            entryData["statePending"] = False
-            await updateEntities(entryData["entities"])
-
-        # process mode and brightness data
+            entryData["state"] = (data[3] == 0x01)
         if data.startswith(b"\x02\x00") and len(data) == 18:
             entryData["mode"] = transformModeFromHex(data[-1])
-            entryData["brightness"] = get_brightness_from_bytearray(data)
-            LOGGER.debug(
-                "State of brightness changed to: " + str(entryData["brightness"])
-            )
-            entryData["modePending"] = False
-            entryData["brightnessPending"] = False
-            await updateEntities(entryData["entities"])
-
-    return bleak_notification_handler
+            entryData["brightness"] = data[3]
+        for e in entryData.get("entities", []):
+            if e.hass: e.async_write_ha_state()
+    return handler
