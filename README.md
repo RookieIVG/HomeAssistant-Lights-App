@@ -1,7 +1,8 @@
 
 # HomeAssistant - Lights App
 
-Custom component that allows control of lights by [Lights App](https://play.google.com/store/apps/details?id=com.novolink.lightapp&hl=en_US)
+Custom component that allows control of lights by [Lights App - Android](https://play.google.com/store/apps/details?id=com.novolink.lightapp&hl=en_US) or [Lights App - iOS](https://apps.apple.com/at/app/lights-app/id1250320630)
+
 
 <p float="left">
   <img src="/img/img2.jpeg" width="200" />
