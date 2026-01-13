@@ -6,7 +6,7 @@
       "local_name": "LED-*"
     }
   ],
-  "codeowners": "@RookieIVG",
+  "codeowners": ["@RookieIVG"],
   "config_flow": true,
   "dependencies": "bluetooth_adapters",
   "documentation": "https://github.com/RookieIVG/HomeAssistant-Light-App",
