@@ -1,21 +1,16 @@
 {
   "domain": "lights_app",
   "name": "Lights App",
-  "documentation": "https://github.com/RookieIVG/HomeAssistant-Light-App",
-  "issue_tracker": "https://github.com/RookieIVG/HomeAssistant-Light-App/issues",
   "bluetooth": [
     {
       "local_name": "LED-*"
     }
   ],
-  "codeowners": [
-    "@RookieIVG"
-  ],
+  "codeowners": "@RookieIVG",
   "config_flow": true,
-  "dependencies": [
-    "bluetooth_adapters"
-  ],
+  "dependencies": "bluetooth_adapters",
+  "documentation": "https://github.com/RookieIVG/HomeAssistant-Light-App",
+  "issue_tracker": "https://github.com/RookieIVG/HomeAssistant-Light-App/issues",
   "iot_class": "local_polling",
-  "requirements": [],
   "version": "1.0.0"
 }
