@@ -18,7 +18,6 @@ from .utils import (
 )
 
 async def setupConnection(hass: HomeAssistant, address: str, config_entry: ConfigEntry):
-    """Baut die Verbindung auf und bereinigt alte Reste radikal."""
     entry_id = config_entry.entry_id
     if entry_id not in hass.data[DOMAIN]:
         return
@@ -32,7 +31,7 @@ async def setupConnection(hass: HomeAssistant, address: str, config_entry: Confi
     try:
         conn_state["connecting"] = True
         
-        # Sicherheits-Check: Alten Client hart entfernen, falls vorhanden
+    
         if conn_state.get("client"):
             LOGGER.debug("Bereinige alten Client vor Neuverbindung...")
             try:
@@ -47,7 +46,6 @@ async def setupConnection(hass: HomeAssistant, address: str, config_entry: Confi
             ble_device = bluetooth.async_ble_device_from_address(hass, address, connectable=True)
 
         if ble_device:
-            # use_services_cache=False sorgt für frische Daten (hilft bei instabilen Verbindungen)
             client = await establish_connection(
                 BleakClientWithServiceCache,
                 ble_device,
@@ -70,7 +68,6 @@ async def setupConnection(hass: HomeAssistant, address: str, config_entry: Confi
                 await sendCommand(data, client, service, getLightStateCommand())
                 await sendCommand(data, client, service, getModeStateCommand())
 
-            # Sicherer Abruf des RSSI-Werts
             rssi_value = getattr(ble_device, "rssi", "unbekannt")
             LOGGER.info("Erfolgreich verbunden mit %s (RSSI: %s)", address, rssi_value)
         else:
@@ -96,14 +93,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "connection": {"connected": False, "connecting": False, "client": None, "service": None},
     }
 
-    # Task im Hintergrund starten
     hass.async_create_task(setupConnection(hass, address, entry))
 
     async def async_update_data():
         """Regelmäßiges Update über den Coordinator."""
         data = hass.data[DOMAIN][entry.entry_id]
         if not data["connection"]["connected"]:
-            # Falls Verbindung weg, im Hintergrund neu versuchen
             hass.async_create_task(setupConnection(hass, address, entry))
             return
         
@@ -111,7 +106,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if client and client.is_connected:
             await sendCommand(data, client, data["connection"]["service"], getLightStateCommand())
 
-    # Längeres Intervall (5 Min), um BlueZ bei schwachem Signal zu entlasten
     coordinator = DataUpdateCoordinator(
         hass, LOGGER, name=f"Lights App {address}",
         update_method=async_update_data,
