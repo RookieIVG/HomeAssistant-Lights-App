@@ -6,6 +6,7 @@ from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import HomeAssistant
 from homeassistant.components import bluetooth
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.event import async_track_time_interval
 
 from .const import DOMAIN, SERVICE, LOGGER
 from .utils import (
@@ -17,12 +18,12 @@ from .utils import (
     getModeStateCommand,
 )
 
-async def setupConnection(hass: HomeAssistant, address: str, config_entry: ConfigEntry):
-    entry_id = config_entry.entry_id
+async def setupConnection(hass: HomeAssistant, entry_id: str):
     if entry_id not in hass.data[DOMAIN]:
         return
 
     data = hass.data[DOMAIN][entry_id]
+    address = data["address"]
     conn_state = data["connection"]
 
     if conn_state["connecting"]:
@@ -31,18 +32,17 @@ async def setupConnection(hass: HomeAssistant, address: str, config_entry: Confi
     try:
         conn_state["connecting"] = True
         
-    
         if conn_state.get("client"):
-            LOGGER.debug("Bereinige alten Client vor Neuverbindung...")
+            LOGGER.debug("Cleaning up old client before reconnection...")
             try:
                 await conn_state["client"].disconnect()
             except Exception:
                 pass
             conn_state["client"] = None
 
-        LOGGER.debug("Hintergrund-Verbindung zu %s (Neu-Initialisierung)", address)
+        LOGGER.info("Connection attempt for %s (Watchdog)...", address)
         
-        async with asyncio.timeout(15.0):
+        async with asyncio.timeout(20.0):
             ble_device = bluetooth.async_ble_device_from_address(hass, address, connectable=True)
 
         if ble_device:
@@ -68,19 +68,18 @@ async def setupConnection(hass: HomeAssistant, address: str, config_entry: Confi
                 await sendCommand(data, client, service, getLightStateCommand())
                 await sendCommand(data, client, service, getModeStateCommand())
 
-            rssi_value = getattr(ble_device, "rssi", "unbekannt")
-            LOGGER.info("Erfolgreich verbunden mit %s (RSSI: %s)", address, rssi_value)
+            rssi_value = getattr(ble_device, "rssi", "unknown")
+            LOGGER.info("Successfully connected to %s (RSSI: %s)", address, rssi_value)
         else:
-            LOGGER.debug("Gerät %s nicht gefunden", address)
+            LOGGER.warning("Device %s not found", address)
             
     except Exception as err:
-        LOGGER.error("Verbindungsfehler für %s: %s", address, err)
+        LOGGER.error("Connection error for %s: %s", address, err)
         data["connection"]["connected"] = False
     finally:
         conn_state["connecting"] = False
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Setup der Integration ohne Blockieren des Startvorgangs."""
     address = entry.data.get(CONF_ADDRESS)
     hass.data.setdefault(DOMAIN, {})
 
@@ -93,18 +92,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "connection": {"connected": False, "connecting": False, "client": None, "service": None},
     }
 
-    hass.async_create_task(setupConnection(hass, address, entry))
+    async def _check_connection(_=None):
+        data = hass.data[DOMAIN][entry.entry_id]
+        if not data["connection"]["connected"] and not data["connection"]["connecting"]:
+            hass.async_create_task(setupConnection(hass, entry.entry_id))
+
+    hass.async_create_task(setupConnection(hass, entry.entry_id))
+
+    entry.async_on_unload(
+        async_track_time_interval(hass, _check_connection, timedelta(minutes=5))
+    )
 
     async def async_update_data():
-        """Regelmäßiges Update über den Coordinator."""
         data = hass.data[DOMAIN][entry.entry_id]
-        if not data["connection"]["connected"]:
-            hass.async_create_task(setupConnection(hass, address, entry))
-            return
-        
-        client = data["connection"]["client"]
-        if client and client.is_connected:
-            await sendCommand(data, client, data["connection"]["service"], getLightStateCommand())
+        if data["connection"]["connected"]:
+            client = data["connection"]["client"]
+            if client and client.is_connected:
+                await sendCommand(data, client, data["connection"]["service"], getLightStateCommand())
+        return True
 
     coordinator = DataUpdateCoordinator(
         hass, LOGGER, name=f"Lights App {address}",
@@ -117,7 +122,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Sauberes Entladen der Integration."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, ["light", "switch"])
     if unload_ok:
         data = hass.data[DOMAIN].get(entry.entry_id)
