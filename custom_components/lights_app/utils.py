@@ -58,14 +58,12 @@ async def sendCommand(entryData, client, service, command):
             async with asyncio.timeout(5.0):
                 await client.write_gatt_char(char, command, True)
     except Exception as err:
-        LOGGER.debug(f"Kommando fehlgeschlagen (RSSI: {getattr(client, 'rssi', 'N/A')}): {err}")
-        # Wir triggern kein hartes disconnect hier, um BlueZ Slots zu schonen
+        LOGGER.debug(f"Command failed: {err}")
 
 def disconnect_handler(entryData):
     def handle(client):
-        LOGGER.warning("Bluetooth-Verbindung verloren für %s", entryData.get("address"))
+        LOGGER.warning("Bluetooth connection lost for %s", entryData.get("address"))
         entryData["connection"]["connected"] = False
-        # Wir löschen die Referenzen, damit setupConnection neu anfangen kann
         entryData["connection"]["client"] = None
         entryData["connection"]["service"] = None
         for e in entryData.get("entities", []):
