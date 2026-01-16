@@ -46,6 +46,5 @@ class LightsAppEntity(Entity):
         return f"{self._address}-{self._name}-{id_suffix}".lower()
 
 class LightsAppLightEntity(LightEntity, LightsAppEntity):
-    """Basis für alle Licht-Typen."""
     def __init__(self, hass, config_entry, entryData, name_suffix):
         LightsAppEntity.__init__(self, hass, config_entry, entryData, name_suffix)
